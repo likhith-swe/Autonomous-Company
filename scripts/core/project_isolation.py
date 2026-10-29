@@ -188,7 +188,12 @@ def run_isolated(command, workspace, *, cwd="/workspace", home=None, readonly=()
     checked_tree(workspace)
     if bwrap == "macos-native":
         env = os.environ.copy()
-        env.update(base_environment())
+        base_env = base_environment()
+        # On macOS native, remove the Linux container loopback proxy so outbound HTTPS works directly
+        for proxy_var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+            base_env.pop(proxy_var, None)
+            env.pop(proxy_var, None)
+        env.update(base_env)
         env["AUTONOMOUS_COMPANY_MACOS_ACTIVE"] = "1"
         env["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:{os.environ.get('PATH', '')}"
         env.update(environment or {})

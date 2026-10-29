@@ -395,7 +395,10 @@ def endpoint_is_loopback(endpoint: str) -> bool:
 
 def post_chat(endpoint: str, api_key: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
     loopback = endpoint_is_loopback(endpoint)
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "AutonomousCompany/1.0 (Darwin/macOS; +https://github.com/MaxMiksa/Autonomous-Company)",
+    }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(
