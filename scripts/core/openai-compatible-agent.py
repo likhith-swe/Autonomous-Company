@@ -153,6 +153,7 @@ def is_sensitive_workspace_path(relative: Path) -> bool:
 
 
 def resolve_workspace_path(workspace: Path, raw_path: str) -> Path:
+    workspace = workspace.resolve()
     candidate = Path(raw_path)
     if not candidate.is_absolute():
         candidate = workspace / candidate
@@ -194,6 +195,7 @@ def run_tool(
     safe_commands: tuple[tuple[str, ...], ...],
     allow_shell: bool,
 ) -> str:
+    workspace = workspace.resolve()
     if name == "read_file":
         path = resolve_workspace_path(workspace, str(arguments.get("path", "")))
         if not path.is_file():

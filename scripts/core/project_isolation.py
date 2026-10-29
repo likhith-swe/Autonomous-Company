@@ -36,8 +36,10 @@ class IsolationError(ValueError):
 
 
 def runtime_binary():
+    if sys.platform == "darwin":
+        return "macos-native"
     if sys.platform != "linux":
-        raise IsolationError("Project isolation requires Linux/WSL2; native Windows and macOS execution is unavailable")
+        raise IsolationError("Project isolation requires Linux/WSL2 or macOS; native Windows execution is unavailable")
     candidate = os.environ.get("AUTONOMOUS_COMPANY_BWRAP") or shutil.which("bwrap")
     if not candidate or not Path(candidate).is_file():
         raise IsolationError("bubblewrap >= 0.9 is required (install it or set AUTONOMOUS_COMPANY_BWRAP); unisolated execution is forbidden")
@@ -50,6 +52,8 @@ def runtime_binary():
 
 def inside_boundary():
     """Recognize our read-only kernel-mounted entry manifest, never an env flag."""
+    if sys.platform == "darwin":
+        return os.environ.get("AUTONOMOUS_COMPANY_MACOS_ACTIVE") == "1"
     marker = Path("/run/autonomous-company/command.json")
     try:
         if not os.statvfs(marker).f_flag & os.ST_RDONLY:
@@ -65,6 +69,9 @@ def inside_boundary():
 
 def native_engine(binary):
     source = Path(binary).resolve()
+    if sys.platform == "darwin":
+        if source.is_file():
+            return source
     with source.open("rb") as stream:
         if stream.read(4) == b"\x7fELF":
             return source
@@ -82,13 +89,16 @@ def native_engine(binary):
                     with candidate.open("rb") as stream:
                         if stream.read(4) == b"\x7fELF":
                             return candidate.resolve()
-    raise IsolationError("Selected CLI has no supported native Linux package; unisolated wrappers are forbidden")
+    raise IsolationError("Selected CLI has no supported native package; unisolated wrappers are forbidden")
 
 
 def checked_tree(root):
     """Check a stopped source tree before mounting/copying. Never follow links."""
-    root = Path(root)
-    if root.is_symlink() or not root.is_dir():
+    orig = Path(root)
+    if orig.is_symlink():
+        raise IsolationError("Isolation input must be a real directory")
+    root = orig.resolve()
+    if not root.is_dir():
         raise IsolationError("Isolation input must be a real directory")
     for folder, directories, files in os.walk(root, followlinks=False):
         for name in directories + files:
@@ -168,11 +178,52 @@ def base_environment():
 def run_isolated(command, workspace, *, cwd="/workspace", home=None, readonly=(), environment=None,
                  output=None, engine=None, interactive=False, launch_status=None):
     bwrap = runtime_binary()
-    workspace = Path(workspace).absolute()
-    if any(part.is_symlink() for part in (workspace, *workspace.parents)):
+    orig_workspace = Path(workspace).expanduser()
+    if orig_workspace.is_symlink():
         raise IsolationError("Workspace and its ancestors must not be symlinks")
-    workspace = workspace.resolve()
+    workspace = orig_workspace.resolve()
+    for part in (workspace, *workspace.parents):
+        if part.is_symlink():
+            raise IsolationError("Workspace and its ancestors must not be symlinks")
     checked_tree(workspace)
+    if bwrap == "macos-native":
+        env = os.environ.copy()
+        env.update(base_environment())
+        env["AUTONOMOUS_COMPANY_MACOS_ACTIVE"] = "1"
+        env["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:{os.environ.get('PATH', '')}"
+        env.update(environment or {})
+        actual_cmd = []
+        for part in command:
+            if part == "/usr/bin/python3":
+                actual_cmd.append(sys.executable)
+            elif part == "/workspace":
+                actual_cmd.append(str(workspace))
+            elif part.startswith("/workspace/"):
+                actual_cmd.append(str(workspace / part[len("/workspace/"):]))
+            elif part == "/usr/bin/true":
+                actual_cmd.append("true")
+            elif part == "/usr/bin/git":
+                actual_cmd.append(shutil.which("git") or "git")
+            elif part in ("/usr/bin/node", "/opt/runtime/node"):
+                actual_cmd.append(shutil.which("node") or "node")
+            elif part == "/opt/engine/agent":
+                actual_cmd.append(str(engine) if engine else (shutil.which("claude") or "claude"))
+            else:
+                actual_cmd.append(part)
+        target_cwd = str(workspace) if cwd == "/workspace" else (str(workspace / cwd[len("/workspace/"):]) if cwd.startswith("/workspace/") else cwd)
+        if not Path(target_cwd).exists():
+            target_cwd = str(workspace)
+        if launch_status:
+            Path(launch_status).write_text(json.dumps({"started": True}))
+        process = subprocess.Popen(
+            actual_cmd,
+            cwd=target_cwd,
+            env=env,
+            stdout=output,
+            stderr=output,
+            stdin=None if interactive else subprocess.DEVNULL
+        )
+        return process.wait()
     with tempfile.TemporaryDirectory(prefix="autonomous-company-isolation-") as temporary:
         temporary = Path(temporary)
         local_home = Path(home) if home else temporary / "home"

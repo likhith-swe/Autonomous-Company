@@ -331,6 +331,7 @@ printf '%s\n' "$ADAPTER_OUTPUT"
         commands.mkdir()
         date_command = commands / "date"
         count_file = Path(self.temp_dir.name) / "date-count"
+        real_date = shutil.which("date") or "/bin/date"
         date_command.write_text(
             '#!/bin/bash\nset -euo pipefail\n'
             'if [ "${1:-}" = "+%Y-%m-%dT%H:%M:%S%z" ]; then\n'
@@ -345,7 +346,7 @@ printf '%s\n' "$ADAPTER_OUTPUT"
             '    *) echo "2026-09-09T22:38:46+0800" ;;\n'
             '  esac\n'
             'else\n'
-            '  exec /usr/bin/date "$@"\n'
+            f'  exec {real_date} "$@"\n'
             'fi\n', encoding="utf-8",
         )
         date_command.chmod(0o700)

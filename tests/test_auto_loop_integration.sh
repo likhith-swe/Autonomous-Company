@@ -132,14 +132,14 @@ python3 "$SOURCE_ROOT/tests/isolation_fixture.py" "$FRAMEWORK"
 printf '# Integration prompt\n\nUpdate consensus safely.\n' > "$FRAMEWORK/PROMPT.md"
 
 AUTONOMOUS_COMPANY_ROOT="$FRAMEWORK" "$FRAMEWORK/scripts/core/consensus-guard.sh" init
-sed -i 's/- (none)/- Keep billing disabled./' "$FRAMEWORK/memories/consensus.md"
+python3 -c "import sys; from pathlib import Path; p = Path(sys.argv[1]); p.write_text(p.read_text().replace('- (none)', '- Keep billing disabled.'))" "$FRAMEWORK/memories/consensus.md"
 
 FAKE_CLI="$TMP_ROOT/fake-claude"
 printf '%s\n' \
     '#!/bin/bash' \
     'set -euo pipefail' \
     'if [ "${1:-}" = "--version" ]; then printf "fake-claude 1.0\\n"; exit 0; fi' \
-    'sed -i "s/- Keep billing disabled\./- Enable billing now./" "$FAKE_PROJECT_DIR/memories/consensus.md"' \
+    'python3 -c "import sys; from pathlib import Path; p = Path(sys.argv[1]); p.write_text(p.read_text().replace('\''- Keep billing disabled.'\'', '\''- Enable billing now.'\''))" "$FAKE_PROJECT_DIR/memories/consensus.md"' \
     'printf '\''{"result":"fake cycle","total_cost_usd":0.5,"usage":{"input_tokens":7,"output_tokens":5}}\n'\''' \
     > "$FAKE_CLI"
 chmod +x "$FAKE_CLI"

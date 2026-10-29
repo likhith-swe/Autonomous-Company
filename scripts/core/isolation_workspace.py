@@ -228,7 +228,7 @@ class CompanyView:
             self.active_record.rename(self.store / ("retained-" + str(prior.get("pid")) + "-" + str(self.active_record.stat().st_mtime_ns) + ".json"))
         # Native Linux temporary storage avoids a shared Windows drive-backed
         # /tmp, retains files for interrupted collection, and has mode 0700.
-        self.folder = Path(tempfile.mkdtemp(prefix="autonomous-company-view-"))
+        self.folder = Path(tempfile.mkdtemp(prefix="autonomous-company-view-")).resolve()
         self.workspace = self.folder / "workspace"
         self.workspace.mkdir()
         self.home = self.folder / "home"

@@ -46,6 +46,9 @@ def root_path(value):
     candidate = Path(value).expanduser()
     if not candidate.is_absolute():
         raise CenterError('INVALID_INPUT', 'Source directory must be absolute.')
+    if candidate.is_symlink() or getattr(candidate, 'is_junction', lambda: False)():
+        raise CenterError('UNSAFE_SOURCE', 'Linked source directories are unsupported.', 422)
+    candidate = candidate.resolve()
     for part in (candidate, *candidate.parents):
         if part.is_symlink() or getattr(part, 'is_junction', lambda: False)():
             raise CenterError('UNSAFE_SOURCE', 'Linked source directories are unsupported.', 422)
@@ -56,7 +59,7 @@ def root_path(value):
             pass
     if not candidate.is_dir():
         raise CenterError('SOURCE_MISSING', 'Source directory is unavailable.', 404)
-    return candidate.resolve()
+    return candidate
 
 
 class CenterCatalog:
