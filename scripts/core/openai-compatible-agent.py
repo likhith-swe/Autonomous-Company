@@ -421,7 +421,13 @@ def post_chat(endpoint: str, api_key: str, payload: dict[str, Any], timeout: flo
                 break
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
-            if exc.code == 429 and attempt < max_retries - 1:
+            if (exc.code in (413, 429) or "rate_limit" in body) and attempt < max_retries - 1:
+                if exc.code == 413 or "too large" in body:
+                    msgs = payload.get("messages", [])
+                    for m in msgs:
+                        if m.get("role") == "tool" and len(m.get("content", "")) > 400:
+                            m["content"] = m["content"][:400] + "... [truncated]"
+                    request.data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
                 sleep_secs = 12.0
                 try:
                     import re
@@ -616,7 +622,7 @@ def run_agent(args: argparse.Namespace, totals: UsageTotals) -> int:
                 {
                     "role": "tool",
                     "tool_call_id": call_id,
-                    "content": redact(tool_result)[:20000],
+                    "content": redact(tool_result)[:2000],
                 }
             )
         turn_delay = float(os.environ.get("OPENAI_COMPATIBLE_TURN_DELAY", "3.0"))

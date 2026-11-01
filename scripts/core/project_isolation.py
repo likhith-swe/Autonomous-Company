@@ -197,6 +197,9 @@ def run_isolated(command, workspace, *, cwd="/workspace", home=None, readonly=()
         env["AUTONOMOUS_COMPANY_MACOS_ACTIVE"] = "1"
         env["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:{os.environ.get('PATH', '')}"
         env.update(environment or {})
+        env["AUTONOMOUS_COMPANY_ROOT"] = str(workspace)
+        if env.get("ACTIVE_PROJECT"):
+            env["ACTIVE_PROJECT_PATH"] = str(workspace / env["ACTIVE_PROJECT"].lstrip("/"))
         actual_cmd = []
         for part in command:
             if part == "/usr/bin/python3":
