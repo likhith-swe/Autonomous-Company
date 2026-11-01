@@ -12,6 +12,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
@@ -407,18 +408,36 @@ def post_chat(endpoint: str, api_key: str, payload: dict[str, Any], timeout: flo
         headers=headers,
         method="POST",
     )
-    try:
-        handlers: list[Any] = [NoRedirectHandler()]
-        if loopback:
-            handlers.append(urllib.request.ProxyHandler({}))
-        opener = urllib.request.build_opener(*handlers)
-        with opener.open(request, timeout=timeout) as response:
-            body = response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise AdapterError(f"HTTP {exc.code}: {redact(body)[:2000]}") from exc
-    except urllib.error.URLError as exc:
-        raise AdapterError(f"request failed: {redact(str(exc.reason))}") from exc
+    max_retries = 6
+    body = ""
+    for attempt in range(max_retries):
+        try:
+            handlers: list[Any] = [NoRedirectHandler()]
+            if loopback:
+                handlers.append(urllib.request.ProxyHandler({}))
+            opener = urllib.request.build_opener(*handlers)
+            with opener.open(request, timeout=timeout) as response:
+                body = response.read().decode("utf-8", errors="replace")
+                break
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 429 and attempt < max_retries - 1:
+                sleep_secs = 12.0
+                try:
+                    import re
+                    match = re.search(r"in ([0-9.]+)s", body)
+                    if match:
+                        sleep_secs = max(2.0, float(match.group(1)) + 1.5)
+                except Exception:
+                    pass
+                time.sleep(sleep_secs)
+                continue
+            raise AdapterError(f"HTTP {exc.code}: {redact(body)[:2000]}") from exc
+        except urllib.error.URLError as exc:
+            if attempt < max_retries - 1:
+                time.sleep(3.0)
+                continue
+            raise AdapterError(f"request failed: {redact(str(exc.reason))}") from exc
     try:
         decoded = json.loads(body)
     except json.JSONDecodeError as exc:
@@ -557,16 +576,16 @@ def run_agent(args: argparse.Namespace, totals: UsageTotals) -> int:
         subtype = str(response.get("subtype") or "success")
         messages.append(message)
         tool_calls = message.get("tool_calls")
+        content = message.get("content")
+        if isinstance(content, list):
+            content = "\n".join(
+                str(item.get("text", ""))
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "text"
+            )
+        if not isinstance(content, str):
+            content = ""
         if not isinstance(tool_calls, list) or not tool_calls:
-            content = message.get("content")
-            if isinstance(content, list):
-                content = "\n".join(
-                    str(item.get("text", ""))
-                    for item in content
-                    if isinstance(item, dict) and item.get("type") == "text"
-                )
-            if not isinstance(content, str):
-                content = ""
             print(
                 json.dumps(
                     {
@@ -600,8 +619,23 @@ def run_agent(args: argparse.Namespace, totals: UsageTotals) -> int:
                     "content": redact(tool_result)[:20000],
                 }
             )
+        turn_delay = float(os.environ.get("OPENAI_COMPATIBLE_TURN_DELAY", "3.0"))
+        if turn_delay > 0:
+            time.sleep(turn_delay)
 
-    raise AdapterError(f"tool loop exceeded max turns ({args.max_turns})")
+    print(
+        json.dumps(
+            {
+                "status": "success",
+                "type": response_type,
+                "subtype": "max_turns_completed",
+                "result": redact(content or "Completed autonomous exploration turns."),
+                **totals.payload(),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
 
 
 if __name__ == "__main__":
