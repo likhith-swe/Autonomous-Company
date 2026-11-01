@@ -399,6 +399,8 @@ def post_chat(endpoint: str, api_key: str, payload: dict[str, Any], timeout: flo
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "AutonomousCompany/1.0 (Darwin/macOS; +https://github.com/MaxMiksa/Autonomous-Company)",
+        "HTTP-Referer": "https://github.com/likhith-swe/Autonomous-Company",
+        "X-Title": "Autonomous Company",
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -482,7 +484,7 @@ class UsageTotals:
         total = number(usage.get("total_tokens"), integer=True)
         if total is None and incoming is not None and outgoing is not None:
             total = incoming + outgoing
-        cost = number(response.get("cost_usd", usage.get("cost_usd")))
+        cost = number(response.get("cost_usd", usage.get("cost_usd", usage.get("cost"))))
         for field, value in (
             ("input_tokens", incoming), ("output_tokens", outgoing),
             ("total_tokens", total), ("cost_usd", cost),
@@ -625,7 +627,7 @@ def run_agent(args: argparse.Namespace, totals: UsageTotals) -> int:
                     "content": redact(tool_result)[:2000],
                 }
             )
-        turn_delay = float(os.environ.get("OPENAI_COMPATIBLE_TURN_DELAY", "3.0"))
+        turn_delay = float(os.environ.get("OPENAI_COMPATIBLE_TURN_DELAY", "0.0"))
         if turn_delay > 0:
             time.sleep(turn_delay)
 
